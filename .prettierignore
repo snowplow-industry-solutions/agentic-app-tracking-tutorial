@@ -1,0 +1,8 @@
+# Ignore the node_modules directory entirely
+node_modules/
+
+# Ignore the common large lock file
+package-lock.json
+
+# Ignore all files in the 'dist' folder
+dist/**/*.json
