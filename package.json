@@ -13,7 +13,8 @@
     "start": "next start",
     "lint": "eslint",
     "lint:fix": "npx prettier --write '**/*.{ts,tsx,json,mjs}'",
-    "lint:check": "npx prettier --check '**/*.{ts,tsx,json,mjs}'"
+    "lint:check": "npx prettier --check '**/*.{ts,tsx,json,mjs}'",
+    "start:dev": "./start.sh dev"
   },
   "dependencies": {
     "@ai-sdk/anthropic": "^3.0.12",
