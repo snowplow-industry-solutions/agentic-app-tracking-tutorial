@@ -32,7 +32,7 @@ This repository is the companion code for the [Snowplow Agentic Tracking Acceler
 # Clone and checkout a tag
 git clone https://github.com/snowplow-industry-solutions/agentic-app-tracking-tutorial.git
 cd agentic-app-tracking-tutorial
-git checkout v0.0-starter  # or any tag
+git checkout v0.1-client-tracking  # or any tag
 
 # Install dependencies
 npm install
@@ -41,11 +41,34 @@ npm install
 cp .env.example .env.local
 # Edit .env.local with your API key(s)
 
-# Start the app
+# Start with Snowplow Micro (v0.1+)
+npm run start:dev
+
+# Or start without tracking (v0.0-starter)
 npm run dev
 ```
 
 Open [http://localhost:3000](http://localhost:3000) to use the travel assistant.
+
+## Running with Snowplow Micro
+
+From `v0.1-client-tracking` onwards, the app uses [Snowplow Micro](https://docs.snowplow.io/docs/testing-debugging/snowplow-micro/what-is-micro/) for local event validation. **Docker is required.**
+
+```bash
+# Start Micro + Next.js together
+npm run start:dev
+```
+
+This launches Snowplow Micro on port 9090 and Next.js on port 3000. The `LiveTrackingPanel` in the app UI shows events in real-time.
+
+### Useful Micro endpoints
+
+| Endpoint | Description |
+|---|---|
+| `http://localhost:9090/micro/good` | Successfully validated events |
+| `http://localhost:9090/micro/bad` | Events that failed schema validation |
+| `http://localhost:9090/micro/all` | All received events |
+| `http://localhost:9090/micro/reset` | Clear all stored events |
 
 ## How It Works
 
