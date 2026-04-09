@@ -1,6 +1,3 @@
-// TODO: v0.3-agentic-tracking — Add self-tracking-tools.ts alongside this file
-// (track_user_intent, track_agent_decision, track_constraint_violation)
-
 import { z } from 'zod';
 import { tool } from 'ai';
 import type { Booking, PassengerDetails, CalendarCheckResult } from '../types';

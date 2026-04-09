@@ -10,6 +10,11 @@ import {
   createCheckCalendarTool,
 } from '@/lib/tools/business-tools';
 import {
+  createTrackUserIntentTool,
+  createTrackAgentDecisionTool,
+  createTrackConstraintViolationTool,
+} from '@/lib/tools/self-tracking-tools';
+import {
   trackAgentInvocation,
   trackAgentStep,
   trackAgentCompletion,
@@ -224,7 +229,10 @@ Be friendly, concise, and transparent about your reasoning.`,
         search_flights: createSearchFlightsTool(requestContext),
         book_flight: createBookFlightTool(requestContext),
         check_calendar: createCheckCalendarTool(requestContext),
-        // TODO: v0.3-agentic-tracking — Register self-tracking tools here
+        track_user_intent: createTrackUserIntentTool(requestContext),
+        track_agent_decision: createTrackAgentDecisionTool(requestContext),
+        track_constraint_violation:
+          createTrackConstraintViolationTool(requestContext),
       },
       onStepFinish: async ({ text, toolCalls, usage, finishReason }) => {
         const stepType =
