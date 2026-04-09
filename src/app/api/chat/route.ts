@@ -5,17 +5,53 @@ import {
   stepCountIs,
 } from 'ai';
 import {
-  searchFlightsTool,
-  bookFlightTool,
-  checkCalendarTool,
+  createSearchFlightsTool,
+  createBookFlightTool,
+  createCheckCalendarTool,
 } from '@/lib/tools/business-tools';
+import {
+  trackAgentInvocation,
+  trackAgentStep,
+  trackAgentCompletion,
+} from '@/lib/tracking/server';
 import {
   getModelInstance,
   getModelConfig,
   isValidModelId,
   DEFAULT_MODEL_ID,
+  type ModelProvider,
   PROVIDER_ENV_VARS,
 } from '@/lib/model-config';
+
+export interface RequestContext {
+  invocationId: string;
+  sessionId: string;
+  stepNumber: number;
+  invocationStartTime: number;
+  totalToolsCalled: number;
+  businessToolsCalled: number;
+  selfTrackingToolsCalled: number;
+  modelName: string;
+  modelProvider: ModelProvider;
+}
+
+function mapFinishReasonForStep(
+  reason: string | undefined,
+): 'stop' | 'length' | 'tool_calls' | 'content_filter' | null {
+  if (!reason) return null;
+  switch (reason) {
+    case 'stop':
+      return 'stop';
+    case 'length':
+      return 'length';
+    case 'tool-calls':
+      return 'tool_calls';
+    case 'content-filter':
+      return 'content_filter';
+    default:
+      return null;
+  }
+}
 
 type ModelReadyMessage = Omit<UIMessage, 'id'>;
 
@@ -46,9 +82,34 @@ function normalizeMessageForModel(
   return undefined;
 }
 
+function extractMessagePreview(message: unknown): string {
+  if (!message || typeof message !== 'object') return '';
+
+  const candidate = message as {
+    content?: string;
+    parts?: Array<{ type?: string; text?: string }>;
+  };
+
+  if (
+    typeof candidate.content === 'string' &&
+    candidate.content.trim().length > 0
+  ) {
+    return candidate.content;
+  }
+
+  if (Array.isArray(candidate.parts)) {
+    return candidate.parts
+      .filter((part) => part?.type === 'text' && typeof part.text === 'string')
+      .map((part) => part.text)
+      .join(' ');
+  }
+
+  return '';
+}
+
 export async function POST(req: Request) {
   try {
-    const { messages: incomingMessages, modelId } = await req.json();
+    const { messages: incomingMessages, sessionId, modelId } = await req.json();
     const messages = Array.isArray(incomingMessages) ? incomingMessages : [];
     const modelReadyMessages = messages
       .map((message: unknown) => normalizeMessageForModel(message))
@@ -73,8 +134,32 @@ export async function POST(req: Request) {
 
     const model = getModelInstance(selectedModelId);
 
-    // TODO: v0.2-server-tracking — Add request-scoped tracking context here
-    // (invocation ID, session ID, step counter, tool counters)
+    // Request-scoped tracking context
+    const requestContext: RequestContext = {
+      invocationId: crypto.randomUUID(),
+      sessionId: sessionId || crypto.randomUUID(),
+      stepNumber: 1,
+      invocationStartTime: Date.now(),
+      totalToolsCalled: 0,
+      businessToolsCalled: 0,
+      selfTrackingToolsCalled: 0,
+      modelName: modelConfig.id,
+      modelProvider: modelConfig.provider,
+    };
+
+    const recentMessage = messages[messages.length - 1];
+    const userMessagePreview = extractMessagePreview(recentMessage);
+
+    // Track agent invocation at start of request
+    trackAgentInvocation({
+      invocationId: requestContext.invocationId,
+      sessionId: requestContext.sessionId,
+      userMessagePreview: userMessagePreview.substring(0, 500),
+      agentType: 'travel_assistant',
+      modelName: requestContext.modelName,
+      modelProvider: requestContext.modelProvider,
+      conversationMessagesCount: messages.length,
+    });
 
     const result = streamText({
       model: model,
@@ -101,16 +186,68 @@ AVAILABLE TOOLS:
 ${/* TODO: v0.3-agentic-tracking — Add self-tracking protocol here */ ''}
 Be friendly, concise, and transparent about your reasoning.`,
       tools: {
-        search_flights: searchFlightsTool,
-        book_flight: bookFlightTool,
-        check_calendar: checkCalendarTool,
+        search_flights: createSearchFlightsTool(requestContext),
+        book_flight: createBookFlightTool(requestContext),
+        check_calendar: createCheckCalendarTool(requestContext),
         // TODO: v0.3-agentic-tracking — Register self-tracking tools here
       },
-      onStepFinish: async () => {
-        // TODO: v0.2-server-tracking — Track each agent step (tokens, tool calls, finish reason)
+      onStepFinish: async ({ text, toolCalls, usage, finishReason }) => {
+        const stepType =
+          requestContext.stepNumber === 1
+            ? 'initial'
+            : toolCalls.length > 0
+              ? 'continue'
+              : 'tool-result';
+        trackAgentStep({
+          invocationId: requestContext.invocationId,
+          sessionId: requestContext.sessionId,
+          stepNumber: requestContext.stepNumber,
+          stepType,
+          inputTokens: usage.inputTokens ?? 0,
+          outputTokens: usage.outputTokens ?? 0,
+          finishReason: mapFinishReasonForStep(finishReason),
+          toolCallsCount: toolCalls.length,
+          textLength: text.length,
+          modelName: requestContext.modelName,
+          modelProvider: requestContext.modelProvider,
+          conversationMessagesCount: messages.length,
+        });
+
+        requestContext.stepNumber++;
       },
-      onFinish: async () => {
-        // TODO: v0.2-server-tracking — Track agent completion (total duration, tokens, tools called)
+      onFinish: async ({ text, finishReason, totalUsage }) => {
+        const totalDuration = Date.now() - requestContext.invocationStartTime;
+        const totalTokens =
+          totalUsage.totalTokens ??
+          (totalUsage.inputTokens ?? 0) + (totalUsage.outputTokens ?? 0);
+
+        const finishReasonMapped =
+          finishReason === 'error'
+            ? 'error'
+            : finishReason === 'content-filter'
+              ? 'error'
+              : finishReason === 'length'
+                ? 'length'
+                : 'stop';
+
+        const wasSuccessful =
+          finishReason !== 'error' && finishReason !== 'content-filter';
+
+        trackAgentCompletion({
+          invocationId: requestContext.invocationId,
+          sessionId: requestContext.sessionId,
+          totalSteps: requestContext.stepNumber,
+          totalDurationMs: totalDuration,
+          totalTokens,
+          toolsCalled: requestContext.totalToolsCalled,
+          businessToolsCalled: requestContext.businessToolsCalled,
+          selfTrackingToolsCalled: requestContext.selfTrackingToolsCalled,
+          finishReason: finishReasonMapped,
+          success: wasSuccessful,
+          finalResponseLength: text.length,
+          modelName: requestContext.modelName,
+          modelProvider: requestContext.modelProvider,
+        });
       },
     });
 

@@ -5,6 +5,8 @@ import { z } from 'zod';
 import { tool } from 'ai';
 import type { Booking, PassengerDetails, CalendarCheckResult } from '../types';
 import { searchFlights } from '../external/flights-api';
+import { trackToolExecution } from '../tracking/server';
+import type { RequestContext } from '@/app/api/chat/route';
 
 // Get current date for schema descriptions
 const getCurrentDateString = () => new Date().toISOString().split('T')[0];
@@ -35,13 +37,92 @@ const searchFlightsSchema = z.object({
     .describe('Maximum number of results to return'),
 });
 
-export const searchFlightsTool = tool({
-  description: 'Search for flights between two cities on a specific date',
-  inputSchema: searchFlightsSchema,
-  execute: async (params) => {
-    return await searchFlights(params);
-  },
-});
+export function createSearchFlightsTool(ctx: RequestContext) {
+  return tool({
+    description: 'Search for flights between two cities on a specific date',
+    inputSchema: searchFlightsSchema,
+    execute: async (params) => {
+      const startTime = Date.now();
+      const toolCallId = crypto.randomUUID();
+      ctx.totalToolsCalled++;
+      ctx.businessToolsCalled++;
+
+      try {
+        const results = await searchFlights(params);
+        const duration = Date.now() - startTime;
+
+        trackToolExecution({
+          invocationId: ctx.invocationId,
+          sessionId: ctx.sessionId,
+          stepNumber: ctx.stepNumber,
+          toolCallId,
+          toolName: 'search_flights',
+          toolCategory: 'business',
+          executionDurationMs: duration,
+          success: true,
+          toolParams: {
+            origin: params.origin,
+            destination: params.destination,
+            date: params.date,
+            return_date: params.return_date ?? null,
+            passengers: params.passengers,
+            cabin_class: params.cabin_class,
+            sort_by: params.sort_by,
+            max_results: params.max_results,
+          },
+          toolResults: {
+            flights_found: results.flights.length,
+            price_min:
+              results.flights.length > 0
+                ? Math.min(...results.flights.map((f) => f.price.amount))
+                : null,
+            price_max:
+              results.flights.length > 0
+                ? Math.max(...results.flights.map((f) => f.price.amount))
+                : null,
+            price_currency: results.flights[0]?.price.currency ?? null,
+          },
+          modelName: ctx.modelName,
+          modelProvider: ctx.modelProvider,
+          currentStepNumber: ctx.stepNumber,
+        });
+
+        return results;
+      } catch (error) {
+        const duration = Date.now() - startTime;
+
+        trackToolExecution({
+          invocationId: ctx.invocationId,
+          sessionId: ctx.sessionId,
+          stepNumber: ctx.stepNumber,
+          toolCallId,
+          toolName: 'search_flights',
+          toolCategory: 'business',
+          executionDurationMs: duration,
+          success: false,
+          errorType: 'execution_error',
+          errorMessage:
+            error instanceof Error ? error.message : 'Unknown error',
+          toolParams: {
+            origin: params.origin,
+            destination: params.destination,
+            date: params.date,
+            return_date: params.return_date ?? null,
+            passengers: params.passengers,
+            cabin_class: params.cabin_class,
+            sort_by: params.sort_by,
+            max_results: params.max_results,
+          },
+          modelName: ctx.modelName,
+          modelProvider: ctx.modelProvider,
+          currentStepNumber: ctx.stepNumber,
+        });
+
+        throw error;
+      }
+    },
+  });
+}
 
 // --- book_flight tool ---
 
@@ -82,53 +163,120 @@ const bookFlightSchema = z.object({
     .describe('Payment method - use "hold" for demo'),
 });
 
-export const bookFlightTool = tool({
-  description: 'Book a specific flight for a passenger',
-  inputSchema: bookFlightSchema,
-  execute: async (params): Promise<Booking> => {
-    // Simulate booking delay
-    await new Promise((resolve) =>
-      setTimeout(resolve, 200 + Math.random() * 300),
-    );
+export function createBookFlightTool(ctx: RequestContext) {
+  return tool({
+    description: 'Book a specific flight for a passenger',
+    inputSchema: bookFlightSchema,
+    execute: async (params): Promise<Booking> => {
+      const startTime = Date.now();
+      const toolCallId = crypto.randomUUID();
+      ctx.totalToolsCalled++;
+      ctx.businessToolsCalled++;
 
-    const confirmationCode = `${Math.random().toString(36).substring(2, 8).toUpperCase()}`;
-    const bookingId = crypto.randomUUID();
+      try {
+        // Simulate booking delay
+        await new Promise((resolve) =>
+          setTimeout(resolve, 200 + Math.random() * 300),
+        );
 
-    if (!params.flight?.price) {
-      throw new Error('Flight price is required');
-    }
+        const confirmationCode = `${Math.random().toString(36).substring(2, 8).toUpperCase()}`;
+        const bookingId = crypto.randomUUID();
 
-    return {
-      confirmation_code: confirmationCode,
-      booking_id: bookingId,
-      status: 'confirmed',
-      flight_details: {
-        id: params.flight.id,
-        airline: params.flight.airline,
-        flight_number: params.flight.flight_number,
-        departure: {
-          airport: params.flight.departure.airport,
-          time: params.flight.departure.time,
-        },
-        arrival: {
-          airport: params.flight.arrival.airport,
-          time: params.flight.arrival.time,
-        },
-        duration_minutes: params.flight.duration_minutes,
-        stops: params.flight.stops,
-        price: params.flight.price,
-        cabin_class: params.flight.cabin_class,
-        seats_available: params.flight.seats_available,
-      },
-      passenger_details: params.passenger as PassengerDetails,
-      total_price: {
-        amount: params.flight.price.amount,
-        currency: params.flight.price.currency,
-      },
-      booked_at: new Date().toISOString(),
-    };
-  },
-});
+        if (!params.flight?.price) {
+          throw new Error('Flight price is required');
+        }
+
+        const result: Booking = {
+          confirmation_code: confirmationCode,
+          booking_id: bookingId,
+          status: 'confirmed',
+          flight_details: {
+            id: params.flight.id,
+            airline: params.flight.airline,
+            flight_number: params.flight.flight_number,
+            departure: {
+              airport: params.flight.departure.airport,
+              time: params.flight.departure.time,
+            },
+            arrival: {
+              airport: params.flight.arrival.airport,
+              time: params.flight.arrival.time,
+            },
+            duration_minutes: params.flight.duration_minutes,
+            stops: params.flight.stops,
+            price: params.flight.price,
+            cabin_class: params.flight.cabin_class,
+            seats_available: params.flight.seats_available,
+          },
+          passenger_details: params.passenger as PassengerDetails,
+          total_price: {
+            amount: params.flight.price.amount,
+            currency: params.flight.price.currency,
+          },
+          booked_at: new Date().toISOString(),
+        };
+
+        const duration = Date.now() - startTime;
+
+        trackToolExecution({
+          invocationId: ctx.invocationId,
+          sessionId: ctx.sessionId,
+          stepNumber: ctx.stepNumber,
+          toolCallId,
+          toolName: 'book_flight',
+          toolCategory: 'business',
+          executionDurationMs: duration,
+          success: true,
+          toolParams: {
+            flight_id: params.flight.id,
+            airline: params.flight.airline,
+            flight_number: params.flight.flight_number,
+            passenger_name: `${params.passenger.first_name} ${params.passenger.last_name}`,
+            payment_method: params.payment_method,
+          },
+          toolResults: {
+            booking_id: bookingId,
+            confirmation_code: confirmationCode,
+            booking_status: 'confirmed',
+          },
+          modelName: ctx.modelName,
+          modelProvider: ctx.modelProvider,
+          currentStepNumber: ctx.stepNumber,
+        });
+
+        return result;
+      } catch (error) {
+        const duration = Date.now() - startTime;
+
+        trackToolExecution({
+          invocationId: ctx.invocationId,
+          sessionId: ctx.sessionId,
+          stepNumber: ctx.stepNumber,
+          toolCallId,
+          toolName: 'book_flight',
+          toolCategory: 'business',
+          executionDurationMs: duration,
+          success: false,
+          errorType: 'execution_error',
+          errorMessage:
+            error instanceof Error ? error.message : 'Unknown error',
+          toolParams: {
+            flight_id: params.flight.id,
+            airline: params.flight.airline,
+            flight_number: params.flight.flight_number,
+            passenger_name: `${params.passenger.first_name} ${params.passenger.last_name}`,
+            payment_method: params.payment_method,
+          },
+          modelName: ctx.modelName,
+          modelProvider: ctx.modelProvider,
+          currentStepNumber: ctx.stepNumber,
+        });
+
+        throw error;
+      }
+    },
+  });
+}
 
 // --- check_calendar tool ---
 
@@ -141,65 +289,128 @@ const checkCalendarSchema = z.object({
     .describe('User ID, defaults to current session user'),
 });
 
-export const checkCalendarTool = tool({
-  description: 'Check calendar for conflicts on specific dates',
-  inputSchema: checkCalendarSchema,
-  execute: async (params): Promise<CalendarCheckResult> => {
-    // Simulate API delay
-    await new Promise((resolve) =>
-      setTimeout(resolve, 100 + Math.random() * 200),
-    );
+export function createCheckCalendarTool(ctx: RequestContext) {
+  return tool({
+    description: 'Check calendar for conflicts on specific dates',
+    inputSchema: checkCalendarSchema,
+    execute: async (params): Promise<CalendarCheckResult> => {
+      const startTime = Date.now();
+      const toolCallId = crypto.randomUUID();
+      ctx.totalToolsCalled++;
+      ctx.businessToolsCalled++;
 
-    // Generate mock calendar conflicts
-    const hasConflicts = Math.random() > 0.6;
-    const conflicts = [];
+      try {
+        // Simulate API delay
+        await new Promise((resolve) =>
+          setTimeout(resolve, 100 + Math.random() * 200),
+        );
 
-    if (hasConflicts) {
-      const numConflicts = Math.floor(Math.random() * 3) + 1;
-      const severities: Array<'high' | 'medium' | 'low'> = [
-        'high',
-        'medium',
-        'low',
-      ];
-      const eventTitles = [
-        'Team Meeting',
-        'Client Presentation',
-        'Project Deadline',
-        'Doctor Appointment',
-        'Family Event',
-        'Conference Call',
-      ];
+        // Generate mock calendar conflicts
+        const hasConflicts = Math.random() > 0.6;
+        const conflicts = [];
 
-      for (let i = 0; i < numConflicts; i++) {
-        conflicts.push({
-          date: params.start_date,
-          time: `${9 + Math.floor(Math.random() * 8)}:00`,
-          title: eventTitles[Math.floor(Math.random() * eventTitles.length)],
-          conflict_severity:
-            severities[Math.floor(Math.random() * severities.length)],
+        if (hasConflicts) {
+          const numConflicts = Math.floor(Math.random() * 3) + 1;
+          const severities: Array<'high' | 'medium' | 'low'> = [
+            'high',
+            'medium',
+            'low',
+          ];
+          const eventTitles = [
+            'Team Meeting',
+            'Client Presentation',
+            'Project Deadline',
+            'Doctor Appointment',
+            'Family Event',
+            'Conference Call',
+          ];
+
+          for (let i = 0; i < numConflicts; i++) {
+            conflicts.push({
+              date: params.start_date,
+              time: `${9 + Math.floor(Math.random() * 8)}:00`,
+              title:
+                eventTitles[Math.floor(Math.random() * eventTitles.length)],
+              conflict_severity:
+                severities[Math.floor(Math.random() * severities.length)],
+            });
+          }
+        }
+
+        // Generate available dates
+        const startDate = new Date(params.start_date);
+        const endDate = new Date(params.end_date);
+        const available: string[] = [];
+
+        for (
+          let d = new Date(startDate);
+          d <= endDate;
+          d.setDate(d.getDate() + 1)
+        ) {
+          if (Math.random() > 0.3) {
+            available.push(d.toISOString().split('T')[0]);
+          }
+        }
+
+        const result: CalendarCheckResult = {
+          conflicts,
+          available_dates: available,
+          checked_at: new Date().toISOString(),
+        };
+
+        const duration = Date.now() - startTime;
+
+        trackToolExecution({
+          invocationId: ctx.invocationId,
+          sessionId: ctx.sessionId,
+          stepNumber: ctx.stepNumber,
+          toolCallId,
+          toolName: 'check_calendar',
+          toolCategory: 'business',
+          executionDurationMs: duration,
+          success: true,
+          toolParams: {
+            start_date: params.start_date,
+            end_date: params.end_date,
+            user_id: params.user_id ?? null,
+          },
+          toolResults: {
+            conflicts_found: conflicts.length,
+            available_dates_count: available.length,
+          },
+          modelName: ctx.modelName,
+          modelProvider: ctx.modelProvider,
+          currentStepNumber: ctx.stepNumber,
         });
+
+        return result;
+      } catch (error) {
+        const duration = Date.now() - startTime;
+
+        trackToolExecution({
+          invocationId: ctx.invocationId,
+          sessionId: ctx.sessionId,
+          stepNumber: ctx.stepNumber,
+          toolCallId,
+          toolName: 'check_calendar',
+          toolCategory: 'business',
+          executionDurationMs: duration,
+          success: false,
+          errorType: 'execution_error',
+          errorMessage:
+            error instanceof Error ? error.message : 'Unknown error',
+          toolParams: {
+            start_date: params.start_date,
+            end_date: params.end_date,
+            user_id: params.user_id ?? null,
+          },
+          modelName: ctx.modelName,
+          modelProvider: ctx.modelProvider,
+          currentStepNumber: ctx.stepNumber,
+        });
+
+        throw error;
       }
-    }
-
-    // Generate available dates
-    const startDate = new Date(params.start_date);
-    const endDate = new Date(params.end_date);
-    const available: string[] = [];
-
-    for (
-      let d = new Date(startDate);
-      d <= endDate;
-      d.setDate(d.getDate() + 1)
-    ) {
-      if (Math.random() > 0.3) {
-        available.push(d.toISOString().split('T')[0]);
-      }
-    }
-
-    return {
-      conflicts,
-      available_dates: available,
-      checked_at: new Date().toISOString(),
-    };
-  },
-});
+    },
+  });
+}
