@@ -22,6 +22,7 @@
     "@ai-sdk/openai": "^3.0.10",
     "@ai-sdk/react": "^3.0.32",
     "@snowplow/browser-tracker": "^4.6.9",
+    "@snowplow/node-tracker": "^4.6.9",
     "ai": "^6.0.30",
     "next": "16.2.1",
     "react": "19.2.1",

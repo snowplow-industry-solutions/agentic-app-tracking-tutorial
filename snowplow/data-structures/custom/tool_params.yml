@@ -1,0 +1,113 @@
+apiVersion: v1
+resourceType: data-structure
+meta:
+  hidden: false
+  schemaType: entity
+  customData: {}
+data:
+  $schema: 'http://iglucentral.com/schemas/com.snowplowanalytics.self-desc/schema/jsonschema/1-0-0#'
+  description: 'Parameters passed to business tools in the travel demo app. Consolidated entity covering search_flights, book_flight, and check_calendar — which fields are populated depends on tool_context.tool_name.'
+  self:
+    vendor: com.snowplow.demo.travel
+    name: tool_params
+    format: jsonschema
+    version: 1-0-0
+  type: object
+  properties:
+    origin:
+      type:
+        - string
+        - 'null'
+      description: 'Origin city or airport code (search_flights)'
+      maxLength: 200
+    destination:
+      type:
+        - string
+        - 'null'
+      description: 'Destination city or airport code (search_flights)'
+      maxLength: 200
+    date:
+      type:
+        - string
+        - 'null'
+      description: 'Departure date in YYYY-MM-DD format (search_flights)'
+      maxLength: 10
+    return_date:
+      type:
+        - string
+        - 'null'
+      description: 'Return date for round-trip in YYYY-MM-DD format (search_flights)'
+      maxLength: 10
+    passengers:
+      type:
+        - integer
+        - 'null'
+      description: 'Number of passengers (search_flights)'
+      minimum: 1
+    cabin_class:
+      type:
+        - string
+        - 'null'
+      description: 'Cabin class (search_flights)'
+      maxLength: 50
+    sort_by:
+      type:
+        - string
+        - 'null'
+      description: 'Sort order for results (search_flights)'
+      maxLength: 50
+    max_results:
+      type:
+        - integer
+        - 'null'
+      description: 'Maximum number of results to return (search_flights)'
+      minimum: 1
+    flight_id:
+      type:
+        - string
+        - 'null'
+      description: 'Unique identifier of the flight to book (book_flight)'
+      maxLength: 200
+    airline:
+      type:
+        - string
+        - 'null'
+      description: 'Airline name (book_flight)'
+      maxLength: 200
+    flight_number:
+      type:
+        - string
+        - 'null'
+      description: 'Flight number (book_flight)'
+      maxLength: 50
+    passenger_name:
+      type:
+        - string
+        - 'null'
+      description: 'Passenger full name (book_flight)'
+      maxLength: 500
+    payment_method:
+      type:
+        - string
+        - 'null'
+      description: 'Payment method (book_flight)'
+      maxLength: 50
+    start_date:
+      type:
+        - string
+        - 'null'
+      description: 'Start date in YYYY-MM-DD format (check_calendar)'
+      maxLength: 10
+    end_date:
+      type:
+        - string
+        - 'null'
+      description: 'End date in YYYY-MM-DD format (check_calendar)'
+      maxLength: 10
+    user_id:
+      type:
+        - string
+        - 'null'
+      description: 'User ID for calendar check (check_calendar)'
+      maxLength: 200
+  additionalProperties: false
