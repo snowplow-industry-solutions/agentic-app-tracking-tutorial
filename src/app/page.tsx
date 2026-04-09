@@ -3,9 +3,14 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useChat } from '@ai-sdk/react';
 import { DefaultChatTransport, type UIMessage } from 'ai';
-// TODO: v0.1-client-tracking — Import and initialize Snowplow browser tracker here
-// import { initClientTracker, trackMessageSent, trackMessageReceived } from '@/lib/tracking/client';
+import {
+  initClientTracker,
+  nanoidToUuid,
+  trackMessageSent,
+  trackMessageReceived,
+} from '@/lib/tracking/client';
 import { DemoScenarios } from './components/DemoScenarios';
+import { LiveTrackingPanel } from './components/LiveTrackingPanel';
 import { ToolCallIndicator } from './components/ToolCallIndicator';
 import { ModelSelector } from './components/ModelSelector';
 import { DEFAULT_MODEL_ID, type ModelProvider } from '@/lib/model-config';
@@ -83,23 +88,70 @@ const mapToolState = (state?: string): ToolCallState => {
   return 'call';
 };
 
+const extractTextContent = (parts?: ChatMessagePart[]): string =>
+  parts
+    ?.filter(isTextPart)
+    .map((part) => part.text)
+    .join('') ?? '';
+
+const extractToolCalls = (parts?: ChatMessagePart[]): ToolCallInfo[] => {
+  if (!parts) return [];
+  return parts.filter(isToolPart).map((part) => {
+    const toolPart = part as ToolUIPartWithType;
+    const toolName = deriveToolName(toolPart);
+    const state = mapToolState(toolPart.state);
+    return {
+      id: toolPart.toolCallId,
+      toolName,
+      category: getToolCategory(toolName),
+      state,
+      args: toolPart.input ?? toolPart.rawInput,
+      result:
+        state === 'error'
+          ? (toolPart.errorText ?? toolPart.output)
+          : toolPart.output,
+    } satisfies ToolCallInfo;
+  });
+};
+
 export default function Home() {
-  const [sessionId] = useState(() => generateSessionId());
+  const sessionIdRef = useRef('');
+  const [sessionId, setSessionId] = useState(() => generateSessionId());
+  const [messageIndex, setMessageIndex] = useState(0);
   const [input, setInput] = useState('');
   const messagesEndRef = useRef<HTMLDivElement>(null);
+  const startTimeRef = useRef<number>(0);
 
   // Model selection state
   const [selectedModelId, setSelectedModelId] = useState(DEFAULT_MODEL_ID);
+  const [selectedModelProvider, setSelectedModelProvider] =
+    useState<ModelProvider>('anthropic');
 
   const handleModelChange = useCallback(
-    (modelId: string, _modelProvider: ModelProvider) => {
+    (modelId: string, modelProvider: ModelProvider) => {
       setSelectedModelId(modelId);
+      setSelectedModelProvider(modelProvider);
     },
     [],
   );
 
-  // TODO: v0.1-client-tracking — Initialize browser tracker on mount
-  // useEffect(() => { initClientTracker(); }, []);
+  useEffect(() => {
+    initClientTracker();
+  }, []);
+
+  const ensureActiveSessionId = useCallback(() => {
+    if (sessionIdRef.current) {
+      return sessionIdRef.current;
+    }
+    const newSessionId = generateSessionId();
+    sessionIdRef.current = newSessionId;
+    setSessionId(newSessionId);
+    return newSessionId;
+  }, []);
+
+  useEffect(() => {
+    sessionIdRef.current = sessionId;
+  }, [sessionId]);
 
   const chatTransport = useMemo(
     () =>
@@ -111,7 +163,29 @@ export default function Home() {
 
   const { messages, sendMessage, status } = useChat<UIMessage>({
     transport: chatTransport,
-    // TODO: v0.1-client-tracking — Add onFinish callback to track message received
+    onFinish: async ({ message }) => {
+      const responseTime = Date.now() - startTimeRef.current;
+
+      const textContent = extractTextContent(message.parts);
+      const toolCallsCount = extractToolCalls(message.parts).length;
+      const activeSessionId = ensureActiveSessionId();
+      const messageUuid = await nanoidToUuid(message.id);
+
+      trackMessageReceived({
+        sessionId: activeSessionId,
+        invocationId: messageUuid,
+        messageId: messageUuid,
+        responseText: textContent,
+        tokensUsed: null,
+        toolCallsCount: toolCallsCount,
+        responseTimeMs: responseTime,
+        messageIndex: messageIndex + 1,
+        modelName: selectedModelId,
+        modelProvider: selectedModelProvider,
+      });
+
+      setMessageIndex((prev) => prev + 2);
+    },
   });
 
   const isLoading = status === 'submitted' || status === 'streaming';
@@ -125,34 +199,51 @@ export default function Home() {
 
     if (!input.trim()) return;
 
-    // TODO: v0.1-client-tracking — Track message sent event here
+    startTimeRef.current = Date.now();
+
+    const activeSessionId = ensureActiveSessionId();
+
+    trackMessageSent({
+      sessionId: activeSessionId,
+      messageId: crypto.randomUUID(),
+      message: input,
+      messageIndex: messageIndex,
+    });
 
     sendMessage(
       {
         role: 'user',
         parts: [{ type: 'text', text: input }],
       },
-      { body: { sessionId, modelId: selectedModelId } },
+      { body: { sessionId: activeSessionId, modelId: selectedModelId } },
     );
     setInput('');
   };
 
   const handleScenarioSelect = (message: string) => {
-    // TODO: v0.1-client-tracking — Track message sent event here
+    startTimeRef.current = Date.now();
+
+    const activeSessionId = ensureActiveSessionId();
+
+    trackMessageSent({
+      sessionId: activeSessionId,
+      messageId: crypto.randomUUID(),
+      message: message,
+      messageIndex: messageIndex,
+    });
 
     sendMessage(
       {
         role: 'user',
         parts: [{ type: 'text', text: message }],
       },
-      { body: { sessionId, modelId: selectedModelId } },
+      { body: { sessionId: activeSessionId, modelId: selectedModelId } },
     );
   };
 
   return (
     <div className="min-h-screen bg-linear-to-br from-blue-50 to-indigo-100">
-      {/* TODO: v0.1-client-tracking — Enable LiveTrackingPanel here */}
-      {/* <LiveTrackingPanel sessionId={sessionId} /> */}
+      <LiveTrackingPanel sessionId={sessionId} />
       <div className="max-w-4xl mx-auto p-4">
         <header className="mb-3 text-center py-[18px]">
           <h1 className="text-4xl font-bold text-gray-800 flex items-center justify-center gap-3">

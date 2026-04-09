@@ -44,6 +44,46 @@ export const initClientTracker = () => {
 };
 
 // ---------------------------------------------------------------------------
+// Deterministic nanoid → UUID mapping (UUIDv5)
+// ---------------------------------------------------------------------------
+
+// App-specific namespace. Stable across sessions so the same AI SDK message.id
+// always resolves to the same UUID — required by the message_context and
+// message_received schemas (format: uuid) while preserving correlation back
+// to the AI SDK's message identifier.
+const TRACKING_UUID_NAMESPACE = 'b7f3e4d2-8c1a-4f5e-9a2b-6d7c8e9f0a1b';
+
+const hexToBytes = (hex: string): Uint8Array => {
+  const clean = hex.replace(/-/g, '');
+  const bytes = new Uint8Array(clean.length / 2);
+  for (let i = 0; i < bytes.length; i++) {
+    bytes[i] = parseInt(clean.substr(i * 2, 2), 16);
+  }
+  return bytes;
+};
+
+const bytesToUuid = (bytes: Uint8Array): string => {
+  const hex = Array.from(bytes.slice(0, 16))
+    .map((b) => b.toString(16).padStart(2, '0'))
+    .join('');
+  return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-${hex.slice(12, 16)}-${hex.slice(16, 20)}-${hex.slice(20, 32)}`;
+};
+
+export const nanoidToUuid = async (input: string): Promise<string> => {
+  const namespace = hexToBytes(TRACKING_UUID_NAMESPACE);
+  const name = new TextEncoder().encode(input);
+  const combined = new Uint8Array(namespace.length + name.length);
+  combined.set(namespace, 0);
+  combined.set(name, namespace.length);
+
+  const hashBuffer = await crypto.subtle.digest('SHA-1', combined);
+  const uuid = new Uint8Array(hashBuffer).slice(0, 16);
+  uuid[6] = (uuid[6] & 0x0f) | 0x50; // version 5
+  uuid[8] = (uuid[8] & 0x3f) | 0x80; // RFC 4122 variant
+  return bytesToUuid(uuid);
+};
+
+// ---------------------------------------------------------------------------
 // Context entity builders
 // ---------------------------------------------------------------------------
 
