@@ -1,0 +1,60 @@
+{
+  "$schema": "http://iglucentral.com/schemas/com.snowplowanalytics.self-desc/schema/jsonschema/1-0-0#",
+  "description": "What the agent interpreted from the user's message in the travel demo app. Attached to user_intent_detected events to capture extracted travel intent details.",
+  "self": {
+    "vendor": "com.snowplow.demo.travel",
+    "name": "intent_extraction",
+    "format": "jsonschema",
+    "version": "1-0-0"
+  },
+  "type": "object",
+  "properties": {
+    "origin": {
+      "type": ["string", "null"],
+      "description": "Origin city or airport code",
+      "maxLength": 200
+    },
+    "destination": {
+      "type": ["string", "null"],
+      "description": "Destination city or airport code",
+      "maxLength": 200
+    },
+    "date": {
+      "type": ["string", "null"],
+      "description": "Departure date in YYYY-MM-DD format",
+      "maxLength": 10
+    },
+    "return_date": {
+      "type": ["string", "null"],
+      "description": "Return date for round-trip in YYYY-MM-DD format",
+      "maxLength": 10
+    },
+    "passengers": {
+      "type": ["integer", "null"],
+      "description": "Number of passengers",
+      "minimum": 1
+    },
+    "budget_min": {
+      "type": ["number", "null"],
+      "description": "Minimum budget amount"
+    },
+    "budget_max": {
+      "type": ["number", "null"],
+      "description": "Maximum budget amount"
+    },
+    "currency": {
+      "type": ["string", "null"],
+      "description": "Currency code for budget values",
+      "maxLength": 10
+    },
+    "preferences": {
+      "type": ["array", "null"],
+      "description": "User preferences extracted from the message",
+      "items": {
+        "type": "string",
+        "maxLength": 500
+      }
+    }
+  },
+  "additionalProperties": false
+}

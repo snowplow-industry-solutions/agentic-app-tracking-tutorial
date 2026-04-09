@@ -78,6 +78,23 @@ const buildToolContext = (data: ToolContextData) => ({
   data: data as unknown as Record<string, unknown>,
 });
 
+export interface IntentExtractionData {
+  origin?: string | null;
+  destination?: string | null;
+  date?: string | null;
+  return_date?: string | null;
+  passengers?: number | null;
+  budget_min?: number | null;
+  budget_max?: number | null;
+  currency?: string | null;
+  preferences?: string[] | null;
+}
+
+const buildIntentExtraction = (data: IntentExtractionData) => ({
+  schema: 'iglu:com.snowplow.demo.travel/intent_extraction/jsonschema/1-0-0' as const,
+  data: data as unknown as Record<string, unknown>,
+});
+
 export interface ToolParamsData {
   origin?: string | null;
   destination?: string | null;
@@ -335,6 +352,190 @@ export const trackAgentCompletion = (params: AgentCompletionParams) => {
       },
     }),
     [
+      buildAgentContext({
+        invocation_id: params.invocationId,
+        session_id: params.sessionId,
+        agent_type: 'travel_assistant',
+        model_name: params.modelName,
+        model_provider: params.modelProvider,
+      }),
+    ],
+  );
+};
+
+// ---------------------------------------------------------------------------
+// Event: user intent detected (self-tracking)
+// ---------------------------------------------------------------------------
+
+export interface UserIntentDetectedParams {
+  invocationId: string;
+  sessionId: string;
+  intentId: string;
+  intentCategory:
+    | 'search_flights'
+    | 'book_flight'
+    | 'modify_booking'
+    | 'cancel_booking'
+    | 'get_recommendations'
+    | 'ask_question';
+  confidence: number;
+  intentExtraction?: IntentExtractionData;
+  reasoning?: string | null;
+  toolCallId: string;
+  executionDurationMs: number;
+  modelName: string;
+  modelProvider: string;
+}
+
+export const trackUserIntentDetected = (params: UserIntentDetectedParams) => {
+  const t = initServerTracker();
+  if (!t) return;
+
+  const contexts: Array<{ schema: string; data: Record<string, unknown> }> = [
+    buildToolContext({
+      tool_name: 'track_user_intent',
+      tool_category: 'self_tracking',
+      tool_call_id: params.toolCallId,
+    }),
+    buildAgentContext({
+      invocation_id: params.invocationId,
+      session_id: params.sessionId,
+      agent_type: 'travel_assistant',
+      model_name: params.modelName,
+      model_provider: params.modelProvider,
+    }),
+  ];
+
+  if (params.intentExtraction) {
+    contexts.push(buildIntentExtraction(params.intentExtraction));
+  }
+
+  t.track(
+    buildSelfDescribingEvent({
+      event: {
+        schema: 'iglu:com.snowplow.agent.tracking/user_intent_detected/jsonschema/1-0-0',
+        data: {
+          invocation_id: params.invocationId,
+          intent_id: params.intentId,
+          intent_category: params.intentCategory,
+          confidence: params.confidence,
+          reasoning: params.reasoning ?? null,
+          detected_at: new Date().toISOString(),
+        },
+      },
+    }),
+    contexts,
+  );
+};
+
+// ---------------------------------------------------------------------------
+// Event: agent decision logged (self-tracking)
+// ---------------------------------------------------------------------------
+
+export interface AgentDecisionLoggedParams {
+  invocationId: string;
+  sessionId: string;
+  decisionId: string;
+  decisionType:
+    | 'tool_selection'
+    | 'parameter_reasoning'
+    | 'result_interpretation'
+    | 'clarification_needed'
+    | 'constraint_handling';
+  reasoning: string;
+  considerations?: string[];
+  toolCallId: string;
+  executionDurationMs: number;
+  modelName: string;
+  modelProvider: string;
+}
+
+export const trackAgentDecisionLogged = (params: AgentDecisionLoggedParams) => {
+  const t = initServerTracker();
+  if (!t) return;
+
+  t.track(
+    buildSelfDescribingEvent({
+      event: {
+        schema: 'iglu:com.snowplow.agent.tracking/agent_decision_logged/jsonschema/1-0-0',
+        data: {
+          invocation_id: params.invocationId,
+          decision_id: params.decisionId,
+          decision_type: params.decisionType,
+          reasoning: params.reasoning,
+          considerations: params.considerations ?? null,
+          logged_at: new Date().toISOString(),
+        },
+      },
+    }),
+    [
+      buildToolContext({
+        tool_name: 'track_agent_decision',
+        tool_category: 'self_tracking',
+        tool_call_id: params.toolCallId,
+      }),
+      buildAgentContext({
+        invocation_id: params.invocationId,
+        session_id: params.sessionId,
+        agent_type: 'travel_assistant',
+        model_name: params.modelName,
+        model_provider: params.modelProvider,
+      }),
+    ],
+  );
+};
+
+// ---------------------------------------------------------------------------
+// Event: constraint violation (self-tracking)
+// ---------------------------------------------------------------------------
+
+export interface ConstraintViolationParams {
+  invocationId: string;
+  sessionId: string;
+  violationId: string;
+  constraintType:
+    | 'budget'
+    | 'dates'
+    | 'availability'
+    | 'route'
+    | 'preferences'
+    | 'other';
+  userRequirement: string;
+  reasonNotMet: string;
+  alternativesConsidered?: string[];
+  recommendation?: string | null;
+  toolCallId: string;
+  executionDurationMs: number;
+  modelName: string;
+  modelProvider: string;
+}
+
+export const trackConstraintViolation = (params: ConstraintViolationParams) => {
+  const t = initServerTracker();
+  if (!t) return;
+
+  t.track(
+    buildSelfDescribingEvent({
+      event: {
+        schema: 'iglu:com.snowplow.agent.tracking/constraint_violation/jsonschema/1-0-0',
+        data: {
+          invocation_id: params.invocationId,
+          violation_id: params.violationId,
+          constraint_type: params.constraintType,
+          user_requirement: params.userRequirement,
+          reason_not_met: params.reasonNotMet,
+          alternatives_considered: params.alternativesConsidered ?? null,
+          recommendation: params.recommendation ?? null,
+          violated_at: new Date().toISOString(),
+        },
+      },
+    }),
+    [
+      buildToolContext({
+        tool_name: 'track_constraint_violation',
+        tool_category: 'self_tracking',
+        tool_call_id: params.toolCallId,
+      }),
       buildAgentContext({
         invocation_id: params.invocationId,
         session_id: params.sessionId,
